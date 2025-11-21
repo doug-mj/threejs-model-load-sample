@@ -13,6 +13,7 @@
     </script>
 
     <style>
+        /* ... (CSS is unchanged) ... */
         html, body {
             height: 100%;
             margin: 0;
@@ -81,8 +82,9 @@
         const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
         renderer.setSize(windowWidth, windowHeight);
         renderer.setPixelRatio(window.devicePixelRatio);
+        
         renderer.shadowMap.enabled = true;
-        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.shadowMap.type = THREE.VSMShadowMap;
 
         const scene = new THREE.Scene();
         scene.background = null;
@@ -95,29 +97,33 @@
         ambientLight.intensity = 3;
         scene.add(ambientLight);
         
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
-        directionalLight.intensity = 2.5;
-        directionalLight.shadow.bias = -0.005;
-        directionalLight.shadow.mapSize.width = 2048;
-        directionalLight.shadow.mapSize.height = 2048;
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 2.5); 
+
         const radius = 10;
         const angle = Math.PI / 4; // 45 degrees
+
         directionalLight.position.set(
             Math.cos(angle) * radius, // x
             Math.sin(angle) * radius, // y
             Math.cos(angle) * radius  // z
         );
-        directionalLight.target.position.set(0, -0.75, 0); // Target the shoe/floor
-        scene.add(directionalLight.target);
+
         directionalLight.castShadow = true;
-        directionalLight.shadow.mapSize.width = 1024;
-        directionalLight.shadow.mapSize.height = 1024;
+        directionalLight.target.position.set(0, -0.75, 0);
+        scene.add(directionalLight.target);
+
+        directionalLight.shadow.mapSize.width = 2048;
+        directionalLight.shadow.mapSize.height = 2048;
+        directionalLight.shadow.radius = 32;
+        directionalLight.shadow.bias = -0.005;
+
         directionalLight.shadow.camera.near = 0.5;
         directionalLight.shadow.camera.far = 20;
         directionalLight.shadow.camera.left = -5;
         directionalLight.shadow.camera.right = 5;
         directionalLight.shadow.camera.top = 5;
         directionalLight.shadow.camera.bottom = -5;
+
         scene.add(directionalLight);
 
         // --- Floor (Shadow Catcher) and Scene Group Setup ---
@@ -157,16 +163,14 @@
             console.error('An error occurred loading the model:', error);
         });
 
-        // --- Interaction and Rotation Variables ---
         let isDragging = false;
         let previousX = 0;
         let previousY = 0;
         let autoRotate = true;
         let velocityX = 0;
         let velocityY = 0;
-        const damping = 0.95; // Controls the "spin down" effect
+        const damping = 0.95;
 
-        // --- Interaction Helper Function ---
         function getClientXY(event) {
             if (event.type.startsWith('touch')) {
                 return { x: event.touches[0].clientX, y: event.touches[0].clientY };
@@ -175,7 +179,6 @@
             }
         }
 
-        // --- Event Handlers for Drag Rotation ---
         function onPointerDown(event) {
             isDragging = true;
             autoRotate = false;
@@ -190,7 +193,6 @@
             const deltaX = x - previousX;
             const deltaY = y - previousY;
             
-            // Apply rotation and calculate velocity
             shoeGroup.rotation.y += deltaX * 0.01;
             shoeGroup.rotation.x += deltaY * 0.01;
             velocityX = deltaX * 0.01;
@@ -204,7 +206,6 @@
             isDragging = false;
         }
 
-        // --- Event Listeners ---
         canvas.addEventListener('mousedown', onPointerDown);
         canvas.addEventListener('mousemove', onPointerMove);
         canvas.addEventListener('mouseup', onPointerUp);
@@ -214,20 +215,17 @@
         canvas.addEventListener('touchmove', onPointerMove, { passive: false });
         canvas.addEventListener('touchend', onPointerUp);
 
-        // --- Animation Loop ---
         function animate() {
             requestAnimationFrame(animate);
             
-            // Auto-rotation when not dragging
             if (shoeGroup && autoRotate) {
                 shoeGroup.rotation.y += 0.01;
             }
             
-            // Inertial rotation (spin down) after dragging stops
             if (!isDragging && (Math.abs(velocityX) > 0.0001 || Math.abs(velocityY) > 0.0001)) {
                 shoeGroup.rotation.y += velocityX;
                 shoeGroup.rotation.x += velocityY;
-                velocityX *= damping; // Apply damping
+                velocityX *= damping;
                 velocityY *= damping;
             }
             
@@ -235,7 +233,6 @@
         }
         animate();
 
-        // --- Responsiveness/Window Resize Handling ---
         window.addEventListener('resize', () => {
             const width = window.innerWidth;
             const height = window.innerHeight;
