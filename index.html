@@ -144,13 +144,15 @@
         // --- 3D Model Loading and Configuration ---
         const loader = new GLTFLoader(); 
         let shoe;
+        let shoeScaleAnimating = false;
+        let shoeScaleTarget = 1.5;
+        let shoeScaleSpeed = 0.05;
 
         loader.load('venture_test.glb', function(gltf) {
             shoe = gltf.scene;
-            shoe.scale.set(1.5, 1.5, 1.5);
+            shoe.scale.set(0.01, 0.01, 0.01);
             shoe.position.y = -0.75;
 
-            // Enable shadow casting for all shoe parts
             shoe.traverse(function(child) {
                 if (child.isMesh) {
                     child.castShadow = true;
@@ -159,6 +161,7 @@
             });
 
             shoeGroup.add(shoe);
+            shoeScaleAnimating = true;
         }, undefined, function(error) {
             console.error('An error occurred loading the model:', error);
         });
@@ -217,18 +220,24 @@
 
         function animate() {
             requestAnimationFrame(animate);
-            
             if (shoeGroup && autoRotate) {
                 shoeGroup.rotation.y += 0.01;
             }
-            
             if (!isDragging && (Math.abs(velocityX) > 0.0001 || Math.abs(velocityY) > 0.0001)) {
                 shoeGroup.rotation.y += velocityX;
                 shoeGroup.rotation.x += velocityY;
                 velocityX *= damping;
                 velocityY *= damping;
             }
-            
+            if (shoe && shoeScaleAnimating) {
+                let current = shoe.scale.x;
+                let next = Math.min(current + shoeScaleSpeed, shoeScaleTarget);
+                shoe.scale.set(next, next, next);
+                if (next >= shoeScaleTarget) {
+                    shoe.scale.set(shoeScaleTarget, shoeScaleTarget, shoeScaleTarget);
+                    shoeScaleAnimating = false;
+                }
+            }
             renderer.render(scene, camera);
         }
         animate();
