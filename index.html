@@ -166,6 +166,57 @@
             console.error('An error occurred loading the model:', error);
         });
 
+        // --- FPS Monitor Configuration ---
+        let frameCount = 0;
+        let lastFpsTime = performance.now();
+        let currentFps = 60;
+        const fpsCheckInterval = 1000; // Check FPS every second
+        const lowFpsThreshold = 30;
+        const lowFpsFrameCount = 3; // Number of consecutive low FPS readings before disabling shadows
+        let consecutiveLowFpsCount = 0;
+        let shadowsDisabled = false;
+
+        function checkPerformance() {
+            frameCount++;
+            const now = performance.now();
+            const elapsed = now - lastFpsTime;
+
+            if (elapsed >= fpsCheckInterval) {
+                currentFps = Math.round((frameCount * 1000) / elapsed);
+                frameCount = 0;
+                lastFpsTime = now;
+
+                // Check if FPS is consistently low
+                if (currentFps < lowFpsThreshold && !shadowsDisabled) {
+                    consecutiveLowFpsCount++;
+                    console.log(`Low FPS detected: ${currentFps} (${consecutiveLowFpsCount}/${lowFpsFrameCount})`);
+
+                    if (consecutiveLowFpsCount >= lowFpsFrameCount) {
+                        disableShadows();
+                    }
+                } else if (currentFps >= lowFpsThreshold) {
+                    consecutiveLowFpsCount = 0;
+                }
+            }
+        }
+
+        function disableShadows() {
+            console.log('Performance optimization: Disabling shadow maps');
+            renderer.shadowMap.enabled = false;
+            directionalLight.castShadow = false;
+            floor.receiveShadow = false;
+
+            if (shoe) {
+                shoe.traverse(function(child) {
+                    if (child.isMesh) {
+                        child.castShadow = false;
+                    }
+                });
+            }
+
+            shadowsDisabled = true;
+        }
+
         let isDragging = false;
         let previousX = 0;
         let previousY = 0;
@@ -220,6 +271,7 @@
 
         function animate() {
             requestAnimationFrame(animate);
+            checkPerformance();
             if (shoeGroup && autoRotate) {
                 shoeGroup.rotation.y += 0.01;
             }
@@ -242,6 +294,7 @@
         }
         animate();
 
+        // --- Window Resize ---
         window.addEventListener('resize', () => {
             const width = window.innerWidth;
             const height = window.innerHeight;
