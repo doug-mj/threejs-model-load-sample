@@ -58,10 +58,27 @@
             line-height: 80%;
             color: grey;
         }
+        #model-selector {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 10;
+            padding: 10px 15px;
+            font-size: 16px;
+            font-family: monospace;
+            background: rgba(255, 255, 255, 0.9);
+            border: 2px solid #333;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        #model-selector:hover {
+            background: rgba(255, 255, 255, 1);
+        }
     </style>
 </head>
 <body>
     <header class="hero-header">
+        <select id="model-selector"></select>
         <canvas id="three-canvas"></canvas>
         <div class="hero-content">
             <h1>SHOE<br/>COMPANY</h1>
@@ -93,10 +110,10 @@
 
         // --- Lighting Configuration ---
         const ambientLight = new THREE.AmbientLight(0xffffff, 2.0);
-        ambientLight.intensity = 3;
+        ambientLight.intensity = 4.5;
         scene.add(ambientLight);
         
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 2.5); 
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 3.75); 
 
         const radius = 10;
         const angle = Math.PI / 4; // 45 degrees
@@ -144,26 +161,70 @@
         const loader = new GLTFLoader(); 
         let shoe;
         let shoeScaleAnimating = false;
-        let shoeScaleTarget = 1.5;
-        let shoeScaleSpeed = 0.05;
+        let shoeScaleTarget = 8;
+        let shoeScaleSpeed = 0.1;
 
-        loader.load('venture_test.glb', function(gltf) {
-            shoe = gltf.scene;
-            shoe.scale.set(0.01, 0.01, 0.01);
-            shoe.position.y = -0.75;
+        // --- Model Selection ---
+        const models = [
+            { name: 'Orange', file: './02.glb' },
+            { name: 'Yellow', file: './08.glb' },
+            { name: 'Blue', file: './15.glb' },
+            { name: 'Purple', file: './22.glb' },
+        ];
 
-            shoe.traverse(function(child) {
-                if (child.isMesh) {
-                    child.castShadow = true;
-                    child.receiveShadow = false;
-                }
-            });
+        const modelSelector = document.getElementById('model-selector');
 
-            shoeGroup.add(shoe);
-            shoeScaleAnimating = true;
-        }, undefined, function(error) {
-            console.error('An error occurred loading the model:', error);
+        // Populate dropdown
+        models.forEach((model, index) => {
+            const option = document.createElement('option');
+            option.value = index;
+            option.textContent = model.name;
+            modelSelector.appendChild(option);
         });
+
+        function loadModel(filePath) {
+            // Remove existing shoe if present
+            if (shoe) {
+                shoeGroup.remove(shoe);
+                shoe.traverse(function(child) {
+                    if (child.isMesh) {
+                        child.geometry?.dispose();
+                        child.material?.dispose();
+                    }
+                });
+                shoe = null;
+            }
+
+            loader.load(filePath, function(gltf) {
+                shoe = gltf.scene;
+                shoe.scale.set(0.01, 0.01, 0.01);
+
+                shoe.traverse(function(child) {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = false;
+                    }
+                });
+
+                shoeGroup.add(shoe);
+                shoeScaleAnimating = true;
+            }, undefined, function(error) {
+                console.error('An error occurred loading the model:', error);
+            });
+        }
+
+        // Handle dropdown change
+        modelSelector.addEventListener('change', (e) => {
+            const selectedModel = models[e.target.value];
+            if (selectedModel) {
+                loadModel(selectedModel.file);
+            }
+        });
+
+        // Load initial model
+        if (models.length > 0) {
+            loadModel(models[0].file);
+        }
 
         // --- FPS Monitor Configuration ---
         let frameCount = 0;
