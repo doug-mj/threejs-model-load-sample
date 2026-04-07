@@ -133,6 +133,11 @@
                 <label>Shadow Opacity <span class="control-value" id="shadow-value">0.7</span></label>
                 <input type="range" id="shadow-slider" min="0" max="1" step="0.05" value="0.7">
             </div>
+            <h3>View</h3>
+            <div class="control-group">
+                <label>Zoom <span class="control-value" id="zoom-value">2.5</span></label>
+                <input type="range" id="zoom-slider" min="1" max="6" step="0.1" value="2.5">
+            </div>
         </div>
         <canvas id="three-canvas"></canvas>
         <!-- <div class="hero-content">
@@ -388,6 +393,59 @@
         canvas.addEventListener('touchstart', onPointerDown, { passive: false });
         canvas.addEventListener('touchmove', onPointerMove, { passive: false });
         canvas.addEventListener('touchend', onPointerUp);
+
+        // --- Zoom Controls ---
+        const minZoom = 1;
+        const maxZoom = 6;
+        const zoomSpeed = 0.001;
+        const zoomSlider = document.getElementById('zoom-slider');
+        const zoomValue = document.getElementById('zoom-value');
+
+        function updateZoom(value) {
+            camera.position.z = Math.max(minZoom, Math.min(maxZoom, value));
+            zoomSlider.value = camera.position.z;
+            zoomValue.textContent = camera.position.z.toFixed(1);
+        }
+
+        zoomSlider.addEventListener('input', (e) => {
+            updateZoom(parseFloat(e.target.value));
+        });
+
+        function onWheel(event) {
+            event.preventDefault();
+            const delta = event.deltaY * zoomSpeed;
+            updateZoom(camera.position.z + delta);
+        }
+
+        canvas.addEventListener('wheel', onWheel, { passive: false });
+
+        // Pinch zoom for touch devices
+        let initialPinchDistance = null;
+        let initialZoom = camera.position.z;
+
+        canvas.addEventListener('touchstart', (event) => {
+            if (event.touches.length === 2) {
+                const dx = event.touches[0].clientX - event.touches[1].clientX;
+                const dy = event.touches[0].clientY - event.touches[1].clientY;
+                initialPinchDistance = Math.sqrt(dx * dx + dy * dy);
+                initialZoom = camera.position.z;
+            }
+        }, { passive: false });
+
+        canvas.addEventListener('touchmove', (event) => {
+            if (event.touches.length === 2 && initialPinchDistance !== null) {
+                event.preventDefault();
+                const dx = event.touches[0].clientX - event.touches[1].clientX;
+                const dy = event.touches[0].clientY - event.touches[1].clientY;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const scale = initialPinchDistance / distance;
+                updateZoom(initialZoom * scale);
+            }
+        }, { passive: false });
+
+        canvas.addEventListener('touchend', () => {
+            initialPinchDistance = null;
+        });
 
         function animate() {
             requestAnimationFrame(animate);
