@@ -75,11 +75,18 @@
         #model-selector:hover {
             background: rgba(255, 255, 255, 1);
         }
-        #controls-panel {
+        #controls-container {
             position: absolute;
             top: 20px;
             left: 20px;
             z-index: 10;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+        }
+        .controls-panel {
             padding: 15px 20px;
             font-family: monospace;
             font-size: 14px;
@@ -88,11 +95,14 @@
             border-radius: 8px;
             min-width: 220px;
         }
-        #controls-panel h3 {
+        .controls-panel h3 {
             margin: 0 0 15px 0;
             font-size: 16px;
             border-bottom: 1px solid #333;
             padding-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
         .control-group {
             margin-bottom: 12px;
@@ -106,37 +116,61 @@
             width: 100%;
             cursor: pointer;
         }
+        .control-group input[type="color"] {
+            width: 100%;
+            height: 30px;
+            cursor: pointer;
+            border: 1px solid #333;
+            border-radius: 4px;
+        }
         .control-value {
             float: right;
             font-weight: bold;
+        }
+        .delete-light-btn {
+            background: #ff4444;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 2px 8px;
+            cursor: pointer;
+            font-size: 12px;
+            font-family: monospace;
+        }
+        .delete-light-btn:hover {
+            background: #cc0000;
+        }
+        #add-light-btn {
+            padding: 10px 15px;
+            font-size: 14px;
+            font-family: monospace;
+            background: #4CAF50;
+            color: white;
+            border: 2px solid #333;
+            border-radius: 8px;
+            cursor: pointer;
+            width: fit-content;
+        }
+        #add-light-btn:hover {
+            background: #45a049;
         }
     </style>
 </head>
 <body>
     <header class="hero-header">
         <select id="model-selector"></select>
-        <div id="controls-panel">
-            <h3>Lighting</h3>
-            <div class="control-group">
-                <label>Directional Light <span class="control-value" id="directional-value">3.7</span></label>
-                <input type="range" id="directional-slider" min="0" max="20" step="0.1" value="3.75">
-            </div>
-            <div class="control-group">
-                <label>Light Angle <span class="control-value" id="angle-value">45</span>°</label>
-                <input type="range" id="angle-slider" min="0" max="360" step="1" value="45">
-            </div>
-            <div class="control-group">
-                <label>Light Height <span class="control-value" id="height-value">7.1</span></label>
-                <input type="range" id="height-slider" min="0" max="15" step="0.1" value="7.07">
-            </div>
-            <div class="control-group">
-                <label>Shadow Opacity <span class="control-value" id="shadow-value">0.7</span></label>
-                <input type="range" id="shadow-slider" min="0" max="1" step="0.05" value="0.7">
-            </div>
-            <h3>View</h3>
-            <div class="control-group">
-                <label>Zoom <span class="control-value" id="zoom-value">2.5</span></label>
-                <input type="range" id="zoom-slider" min="1" max="6" step="0.1" value="2.5">
+        <div id="controls-container">
+            <button id="add-light-btn">+ New Light</button>
+            <div class="controls-panel" id="view-controls">
+                <h3>View</h3>
+                <div class="control-group">
+                    <label>Zoom <span class="control-value" id="zoom-value">2.5</span></label>
+                    <input type="range" id="zoom-slider" min="1" max="6" step="0.1" value="2.5">
+                </div>
+                <div class="control-group">
+                    <label>Shadow Opacity <span class="control-value" id="shadow-value">0.7</span></label>
+                    <input type="range" id="shadow-slider" min="0" max="1" step="0.05" value="0.7">
+                </div>
             </div>
         </div>
         <canvas id="three-canvas"></canvas>
@@ -173,39 +207,166 @@
         ambientLight.intensity = 4.5;
         scene.add(ambientLight);
         
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 3.75); 
-
-        let lightAngle = 45; // degrees
-        let lightHeight = 7.07;
+        // --- Multi-Light Management System ---
+        const lights = [];
+        let lightIdCounter = 0;
         const lightRadius = 10;
+        const controlsContainer = document.getElementById('controls-container');
 
-        function updateLightPosition() {
-            const angleRad = (lightAngle * Math.PI) / 180;
-            directionalLight.position.set(
-                Math.cos(angleRad) * lightRadius,
-                lightHeight,
-                Math.sin(angleRad) * lightRadius
-            );
+        function createLight(options = {}) {
+            const id = lightIdCounter++;
+            const defaults = {
+                intensity: 3.75,
+                angle: 45 + (id * 90), // Spread lights around
+                height: 7.07,
+                color: '#ffffff'
+            };
+            const config = { ...defaults, ...options };
+
+            // Create Three.js light
+            const light = new THREE.DirectionalLight(config.color, config.intensity);
+            
+            // Only the first light casts shadows to avoid multiple overlapping shadows
+            const castsShadow = lights.length === 0;
+            light.castShadow = castsShadow;
+            
+            light.target.position.set(0, -0.75, 0);
+            scene.add(light.target);
+
+            if (castsShadow) {
+                light.shadow.mapSize.width = 2048;
+                light.shadow.mapSize.height = 2048;
+                light.shadow.radius = 32;
+                light.shadow.bias = -0.005;
+                light.shadow.blurSamples = 12;
+                light.shadow.camera.near = 0.5;
+                light.shadow.camera.far = 20;
+                light.shadow.camera.left = -5;
+                light.shadow.camera.right = 5;
+                light.shadow.camera.top = 5;
+                light.shadow.camera.bottom = -5;
+            }
+
+            scene.add(light);
+
+            // Update light position
+            function updatePosition() {
+                const angleRad = (config.angle * Math.PI) / 180;
+                light.position.set(
+                    Math.cos(angleRad) * lightRadius,
+                    config.height,
+                    Math.sin(angleRad) * lightRadius
+                );
+            }
+            updatePosition();
+
+            // Create control panel
+            const panel = document.createElement('div');
+            panel.className = 'controls-panel';
+            panel.id = `light-panel-${id}`;
+            panel.innerHTML = `
+                <h3>
+                    Light ${id + 1}
+                    <button class="delete-light-btn" data-light-id="${id}">Delete</button>
+                </h3>
+                <div class="control-group">
+                    <label>Color</label>
+                    <input type="color" class="light-color" value="${config.color}">
+                </div>
+                <div class="control-group">
+                    <label>Intensity <span class="control-value intensity-value">${config.intensity.toFixed(1)}</span></label>
+                    <input type="range" class="intensity-slider" min="0" max="20" step="0.1" value="${config.intensity}">
+                </div>
+                <div class="control-group">
+                    <label>Angle <span class="control-value angle-value">${Math.round(config.angle)}</span>°</label>
+                    <input type="range" class="angle-slider" min="0" max="360" step="1" value="${config.angle}">
+                </div>
+                <div class="control-group">
+                    <label>Height <span class="control-value height-value">${config.height.toFixed(1)}</span></label>
+                    <input type="range" class="height-slider" min="0" max="15" step="0.1" value="${config.height}">
+                </div>
+            `;
+
+            // Add event listeners
+            panel.querySelector('.light-color').addEventListener('input', (e) => {
+                light.color.set(e.target.value);
+            });
+
+            panel.querySelector('.intensity-slider').addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                light.intensity = value;
+                panel.querySelector('.intensity-value').textContent = value.toFixed(1);
+            });
+
+            panel.querySelector('.angle-slider').addEventListener('input', (e) => {
+                config.angle = parseFloat(e.target.value);
+                panel.querySelector('.angle-value').textContent = Math.round(config.angle);
+                updatePosition();
+            });
+
+            panel.querySelector('.height-slider').addEventListener('input', (e) => {
+                config.height = parseFloat(e.target.value);
+                panel.querySelector('.height-value').textContent = config.height.toFixed(1);
+                updatePosition();
+            });
+
+            panel.querySelector('.delete-light-btn').addEventListener('click', () => {
+                deleteLight(id);
+            });
+
+            // Insert panel after the "New Light" button
+            const addButton = document.getElementById('add-light-btn');
+            addButton.insertAdjacentElement('afterend', panel);
+
+            // Store light data
+            const lightData = { id, light, panel, config, updatePosition };
+            lights.push(lightData);
+
+            return lightData;
         }
-        updateLightPosition();
 
-        directionalLight.castShadow = true;
-        directionalLight.target.position.set(0, -0.75, 0);
-        scene.add(directionalLight.target);
+        function deleteLight(id) {
+            const index = lights.findIndex(l => l.id === id);
+            if (index === -1) return;
 
-        directionalLight.shadow.mapSize.width = 2048;
-        directionalLight.shadow.mapSize.height = 2048;
-        directionalLight.shadow.radius = 32;
-        directionalLight.shadow.bias = -0.005;
-        directionalLight.shadow.blurSamples = 12;
-        directionalLight.shadow.camera.near = 0.5;
-        directionalLight.shadow.camera.far = 20;
-        directionalLight.shadow.camera.left = -5;
-        directionalLight.shadow.camera.right = 5;
-        directionalLight.shadow.camera.top = 5;
-        directionalLight.shadow.camera.bottom = -5;
+            const lightData = lights[index];
+            const wasShadowCaster = lightData.light.castShadow;
+            
+            // Remove from scene
+            scene.remove(lightData.light);
+            scene.remove(lightData.light.target);
+            
+            // Remove panel
+            lightData.panel.remove();
+            
+            // Remove from array
+            lights.splice(index, 1);
+            
+            // If we deleted the shadow caster, assign shadow casting to the next light
+            if (wasShadowCaster && lights.length > 0) {
+                const newShadowCaster = lights[0].light;
+                newShadowCaster.castShadow = true;
+                newShadowCaster.shadow.mapSize.width = 2048;
+                newShadowCaster.shadow.mapSize.height = 2048;
+                newShadowCaster.shadow.radius = 32;
+                newShadowCaster.shadow.bias = -0.005;
+                newShadowCaster.shadow.blurSamples = 12;
+                newShadowCaster.shadow.camera.near = 0.5;
+                newShadowCaster.shadow.camera.far = 20;
+                newShadowCaster.shadow.camera.left = -5;
+                newShadowCaster.shadow.camera.right = 5;
+                newShadowCaster.shadow.camera.top = 5;
+                newShadowCaster.shadow.camera.bottom = -5;
+            }
+        }
 
-        scene.add(directionalLight);
+        // Add light button handler
+        document.getElementById('add-light-btn').addEventListener('click', () => {
+            createLight();
+        });
+
+        // Create initial light
+        createLight();
 
         // --- Floor (Shadow Catcher) and Scene Group Setup ---
         const shoeGroup = new THREE.Group();
@@ -328,7 +489,12 @@
         function disableShadows() {
             console.log('Performance optimization: Disabling shadow maps');
             renderer.shadowMap.enabled = false;
-            directionalLight.castShadow = false;
+            
+            // Disable shadows on all lights
+            lights.forEach(lightData => {
+                lightData.light.castShadow = false;
+            });
+            
             floor.receiveShadow = false;
 
             if (shoe) {
