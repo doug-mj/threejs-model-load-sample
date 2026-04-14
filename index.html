@@ -207,6 +207,21 @@
         ambientLight.intensity = 4.5;
         scene.add(ambientLight);
         
+        // --- Floor (Shadow Catcher) and Scene Group Setup ---
+        const shoeGroup = new THREE.Group();
+        scene.add(shoeGroup);
+
+        const floorGeometry = new THREE.CircleGeometry(5, 64);
+        const floorMaterial = new THREE.ShadowMaterial({
+            transparent: true,
+            opacity: 0.7 
+        });
+        const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+        floor.rotation.x = -Math.PI / 2;
+        floor.position.y = -0.71;
+        floor.receiveShadow = true;
+        shoeGroup.add(floor);
+
         // --- Multi-Light Management System ---
         const lights = [];
         let lightIdCounter = 0;
@@ -231,7 +246,7 @@
             light.castShadow = castsShadow;
             
             light.target.position.set(0, -0.5, 0);
-            scene.add(light.target);
+            shoeGroup.add(light.target);
 
             if (castsShadow) {
                 light.shadow.mapSize.width = 2048;
@@ -247,7 +262,7 @@
                 light.shadow.camera.bottom = -5;
             }
 
-            scene.add(light);
+            shoeGroup.add(light);
 
             // Update light position
             function updatePosition() {
@@ -332,9 +347,9 @@
             const lightData = lights[index];
             const wasShadowCaster = lightData.light.castShadow;
             
-            // Remove from scene
-            scene.remove(lightData.light);
-            scene.remove(lightData.light.target);
+            // Remove from shoeGroup
+            shoeGroup.remove(lightData.light);
+            shoeGroup.remove(lightData.light.target);
             
             // Remove panel
             lightData.panel.remove();
@@ -369,21 +384,6 @@
         createLight({ intensity: 11.0, angle: 149, height: 9.0, color: '#ffffff' });
         createLight({ intensity: 5.0, angle: 320, height: 3.9, color: '#ffffff' });
         createLight({ intensity: 2.0, angle: 129, height: 0.0, color: '#ffffff' });
-
-        // --- Floor (Shadow Catcher) and Scene Group Setup ---
-        const shoeGroup = new THREE.Group();
-        scene.add(shoeGroup);
-
-        const floorGeometry = new THREE.CircleGeometry(5, 64);
-        const floorMaterial = new THREE.ShadowMaterial({
-            transparent: true,
-            opacity: 0.7 
-        });
-        const floor = new THREE.Mesh(floorGeometry, floorMaterial);
-        floor.rotation.x = -Math.PI / 2;
-        floor.position.y = -0.71;
-        floor.receiveShadow = true;
-        shoeGroup.add(floor);
 
         // --- 3D Model Loading and Configuration ---
         const loader = new GLTFLoader(); 
@@ -540,7 +540,7 @@
             const deltaX = x - previousX;
             const deltaY = y - previousY;
             
-            shoeGroup.rotation.y += deltaX * 0.01;
+            if (shoe) shoe.rotation.y += deltaX * 0.01;
             shoeGroup.rotation.x += deltaY * 0.01;
             velocityX = deltaX * 0.01;
             velocityY = deltaY * 0.01;
@@ -622,7 +622,7 @@
                 shoeGroup.rotation.y += 0.01;
             }
             if (!isDragging && (Math.abs(velocityX) > 0.0001 || Math.abs(velocityY) > 0.0001)) {
-                shoeGroup.rotation.y += velocityX;
+                if (shoe) shoe.rotation.y += velocityX;
                 shoeGroup.rotation.x += velocityY;
                 velocityX *= damping;
                 velocityY *= damping;
