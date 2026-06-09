@@ -154,6 +154,33 @@
         #add-light-btn:hover {
             background: #45a049;
         }
+        .drag-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(76, 175, 80, 0.3);
+            border: 4px dashed #4CAF50;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .drag-overlay.active {
+            opacity: 1;
+        }
+        .drag-overlay-text {
+            font-family: monospace;
+            font-size: 24px;
+            color: #333;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 20px 40px;
+            border-radius: 8px;
+        }
     </style>
 </head>
 <body>
@@ -183,6 +210,7 @@
         // --- THREE.js Imports ---
         import * as THREE from 'three'; 
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
         const windowWidth = window.innerWidth;
         const windowHeight = window.innerHeight;
@@ -193,18 +221,30 @@
         renderer.setSize(windowWidth, windowHeight);
         renderer.setPixelRatio(window.devicePixelRatio);
         
+        // Color management and tone mapping (matches model-viewer defaults)
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.0;
+        
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.VSMShadowMap;
 
         const scene = new THREE.Scene();
         scene.background = null;
+        
+        // Image-based lighting using RoomEnvironment (critical for PBR materials)
+        const pmremGenerator = new THREE.PMREMGenerator(renderer);
+        pmremGenerator.compileEquirectangularShader();
+        scene.environment = pmremGenerator.fromScene(new RoomEnvironment()).texture;
+        pmremGenerator.dispose();
 
         const camera = new THREE.PerspectiveCamera(75, windowWidth/windowHeight, 0.1, 1000);
         camera.position.z = 2.5;
 
         // --- Lighting Configuration ---
-        const ambientLight = new THREE.AmbientLight(0xffffff, 2.0);
-        ambientLight.intensity = 4.5;
+        // With IBL environment, ambient light is mostly redundant.
+        // Keep a very subtle fill if needed, but start at 0 to let IBL do the work.
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0);
         scene.add(ambientLight);
         
         // --- Floor (Shadow Catcher) and Scene Group Setup ---
@@ -380,10 +420,11 @@
             createLight();
         });
 
-        // Create initial lights (designer settings)
-        createLight({ intensity: 11.0, angle: 149, height: 9.0, color: '#ffffff' });
-        createLight({ intensity: 5.0, angle: 320, height: 3.9, color: '#ffffff' });
-        createLight({ intensity: 2.0, angle: 129, height: 0.0, color: '#ffffff' });
+        // Create initial lights
+        // With IBL providing most illumination, use much lower intensities.
+        // Three.js r155+ uses physically-based light units, so old values are way too strong.
+        // Keep one subtle directional light for shadow casting only.
+        createLight({ intensity: 1.0, angle: 149, height: 9.0, color: '#ffffff' });
 
         // --- 3D Model Loading and Configuration ---
         const loader = new GLTFLoader(); 
@@ -454,6 +495,98 @@
         if (models.length > 0) {
             loadModel(models[0].file);
         }
+
+        // --- Drag and Drop Model Loading ---
+        const dragOverlay = document.createElement('div');
+        dragOverlay.className = 'drag-overlay';
+        dragOverlay.innerHTML = '<div class="drag-overlay-text">Drop GLB/GLTF to load</div>';
+        document.body.appendChild(dragOverlay);
+
+        let dragCounter = 0;
+
+        document.addEventListener('dragenter', (e) => {
+            e.preventDefault();
+            dragCounter++;
+            dragOverlay.classList.add('active');
+        });
+
+        document.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            dragCounter--;
+            if (dragCounter === 0) {
+                dragOverlay.classList.remove('active');
+            }
+        });
+
+        document.addEventListener('dragover', (e) => {
+            e.preventDefault();
+        });
+
+        document.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dragCounter = 0;
+            dragOverlay.classList.remove('active');
+
+            const files = e.dataTransfer.files;
+            if (files.length === 0) return;
+
+            const file = files[0];
+            const fileName = file.name.toLowerCase();
+            
+            if (!fileName.endsWith('.glb') && !fileName.endsWith('.gltf')) {
+                console.warn('Please drop a .glb or .gltf file');
+                return;
+            }
+
+            const url = URL.createObjectURL(file);
+            
+            // Remove existing shoe
+            if (shoe) {
+                shoeGroup.remove(shoe);
+                shoe.traverse(function(child) {
+                    if (child.isMesh) {
+                        child.geometry?.dispose();
+                        child.material?.dispose();
+                    }
+                });
+                shoe = null;
+            }
+
+            loader.load(url, function(gltf) {
+                shoe = gltf.scene;
+                shoe.scale.set(0.01, 0.01, 0.01);
+
+                shoe.traverse(function(child) {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = false;
+                    }
+                });
+
+                shoeGroup.add(shoe);
+                shoeScaleAnimating = true;
+                
+                // Clean up the object URL
+                URL.revokeObjectURL(url);
+                
+                // Update selector to show custom model
+                modelSelector.value = '';
+                const customOption = modelSelector.querySelector('option[value="custom"]');
+                if (!customOption) {
+                    const opt = document.createElement('option');
+                    opt.value = 'custom';
+                    opt.textContent = `Custom: ${file.name}`;
+                    opt.selected = true;
+                    modelSelector.appendChild(opt);
+                } else {
+                    customOption.textContent = `Custom: ${file.name}`;
+                    customOption.selected = true;
+                }
+            }, undefined, function(error) {
+                console.error('Error loading dropped model:', error);
+                URL.revokeObjectURL(url);
+            });
+        });
 
         // --- FPS Monitor Configuration ---
         let frameCount = 0;
