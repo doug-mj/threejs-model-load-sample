@@ -420,11 +420,10 @@
             createLight();
         });
 
-        // Create initial lights
-        // With IBL providing most illumination, use much lower intensities.
-        // Three.js r155+ uses physically-based light units, so old values are way too strong.
-        // Keep one subtle directional light for shadow casting only.
-        createLight({ intensity: 1.0, angle: 149, height: 9.0, color: '#ffffff' });
+        // Create initial lights (Riverline settings)
+        createLight({ intensity: 11.0, angle: 149, height: 9.0, color: '#ffffff' });
+        createLight({ intensity: 5.0, angle: 320, height: 3.9, color: '#ffffff' });
+        createLight({ intensity: 2.0, angle: 129, height: 0.0, color: '#ffffff' });
 
         // --- 3D Model Loading and Configuration ---
         const loader = new GLTFLoader(); 
