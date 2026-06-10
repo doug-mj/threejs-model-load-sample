@@ -194,8 +194,8 @@
             <div class="controls-panel" id="view-controls">
                 <h3>View</h3>
                 <div class="control-group">
-                    <label>Zoom <span class="control-value" id="zoom-value">2.5</span></label>
-                    <input type="range" id="zoom-slider" min="1" max="6" step="0.1" value="2.5">
+                    <label>Zoom <span class="control-value" id="zoom-value">4.0</span></label>
+                    <input type="range" id="zoom-slider" min="1" max="6" step="0.1" value="4">
                 </div>
                 <div class="control-group">
                     <label>FOV <span class="control-value" id="fov-value">45</span>°</label>
@@ -206,16 +206,16 @@
                     <input type="range" id="exposure-slider" min="0.3" max="2.0" step="0.05" value="1.0">
                 </div>
                 <div class="control-group">
-                    <label>SSAO <span class="control-value" id="ssao-value">1.0</span></label>
-                    <input type="range" id="ssao-slider" min="0" max="2" step="0.1" value="1.0">
+                    <label>SSAO <span class="control-value" id="ssao-value">0.5</span></label>
+                    <input type="range" id="ssao-slider" min="0" max="2" step="0.1" value="0.5">
                     <label style="margin-top: 4px; display: flex; align-items: center; gap: 6px;">
                         <input type="checkbox" id="ssao-debug"> Show SSAO only
                     </label>
                 </div>
-                <div class="control-group">
+                <!-- <div class="control-group">
                     <label>Shadow Opacity <span class="control-value" id="shadow-value">0.7</span></label>
                     <input type="range" id="shadow-slider" min="0" max="1" step="0.05" value="0.7">
-                </div>
+                </div> -->
             </div>
             <button id="add-light-btn">+ New Light</button>
         </div>
@@ -311,7 +311,7 @@
         });
 
         const camera = new THREE.PerspectiveCamera(45, windowWidth/windowHeight, 0.1, 1000);
-        camera.position.z = 2.5;
+        camera.position.z = 4;
 
         // --- Post-Processing Setup ---
         // Use multisampled render target for anti-aliasing
@@ -325,10 +325,10 @@
 
         // SSAO pass - Screen Space Ambient Occlusion for surface detail
         const ssaoPass = new SSAOPass(scene, camera, windowWidth, windowHeight);
-        ssaoPass.kernelRadius = 32;
+        ssaoPass.kernelRadius = 28;
         ssaoPass.kernelSize = 64;  // More samples for quality
         ssaoPass.minDistance = 0.0005;
-        ssaoPass.maxDistance = 0.3;
+        ssaoPass.maxDistance = 0.25;
         ssaoPass.output = SSAOPass.OUTPUT.Default;
         composer.addPass(ssaoPass);
 
@@ -336,7 +336,7 @@
         const SSAOIntensityShader = {
             uniforms: {
                 tDiffuse: { value: null },
-                intensity: { value: 2.5 }  // Multiplier for SSAO darkness
+                intensity: { value: 1.75 }  // Multiplier for SSAO darkness
             },
             vertexShader: `
                 varying vec2 vUv;
@@ -379,13 +379,22 @@
         const floorGeometry = new THREE.CircleGeometry(5, 64);
         const floorMaterial = new THREE.ShadowMaterial({
             transparent: true,
-            opacity: 0.7 
+            opacity: 0.7,
+            depthWrite: false  // Exclude from SSAO depth calculations
         });
         const floor = new THREE.Mesh(floorGeometry, floorMaterial);
         floor.rotation.x = -Math.PI / 2;
         floor.position.y = -0.71;
         floor.receiveShadow = true;
         shoeGroup.add(floor);
+        
+        // Exclude floor from SSAO by hiding it during SSAO's depth/normal render
+        const originalSSAORender = ssaoPass.render.bind(ssaoPass);
+        ssaoPass.render = function(renderer, writeBuffer, readBuffer, deltaTime, maskActive) {
+            floor.visible = false;
+            originalSSAORender(renderer, writeBuffer, readBuffer, deltaTime, maskActive);
+            floor.visible = true;
+        };
 
         // --- Multi-Light Management System ---
         const lights = [];
@@ -808,7 +817,19 @@
         let autoRotate = true;
         let velocityX = 0;
         let velocityY = 0;
-        const damping = 0.95;
+        
+        // Luxe orbit controls settings
+        const rotationSensitivity = 0.003;    // Slower rotation
+        const autoRotateSpeed = 0.002;        // Slower auto-rotate
+        const damping = 0.97;                 // Smoother deceleration
+        const velocitySmoothing = 0.15;       // Smooth velocity accumulation
+        let targetVelocityX = 0;
+        let targetVelocityY = 0;
+        let currentRotationY = 0;
+        let currentRotationX = 0;
+        let targetRotationY = 0;
+        let targetRotationX = 0;
+        const rotationLerp = 0.08;            // Smooth interpolation factor
 
         function getClientXY(event) {
             if (event.type.startsWith('touch')) {
@@ -824,6 +845,9 @@
             const { x, y } = getClientXY(event);
             previousX = x;
             previousY = y;
+            // Reset velocities on new drag
+            targetVelocityX = 0;
+            targetVelocityY = 0;
         }
 
         function onPointerMove(event) {
@@ -832,10 +856,17 @@
             const deltaX = x - previousX;
             const deltaY = y - previousY;
             
-            if (shoe) shoe.rotation.y += deltaX * 0.01;
-            shoeGroup.rotation.x += deltaY * 0.01;
-            velocityX = deltaX * 0.01;
-            velocityY = deltaY * 0.01;
+            // Accumulate target rotation for smooth interpolation
+            targetRotationY += deltaX * rotationSensitivity;
+            targetRotationX += deltaY * rotationSensitivity;
+            
+            // Clamp vertical rotation
+            const maxVerticalAngle = Math.PI / 2.5; // ~72 degrees
+            targetRotationX = Math.max(-maxVerticalAngle, Math.min(maxVerticalAngle, targetRotationX));
+            
+            // Smooth velocity for momentum
+            targetVelocityX += (deltaX * rotationSensitivity - targetVelocityX) * velocitySmoothing;
+            targetVelocityY += (deltaY * rotationSensitivity - targetVelocityY) * velocitySmoothing;
             
             previousX = x;
             previousY = y;
@@ -843,6 +874,9 @@
 
         function onPointerUp() {
             isDragging = false;
+            // Transfer accumulated velocity for momentum
+            velocityX = targetVelocityX;
+            velocityY = targetVelocityY;
         }
 
         canvas.addEventListener('mousedown', onPointerDown);
@@ -957,15 +991,32 @@
         function animate() {
             requestAnimationFrame(animate);
             checkPerformance();
+            
+            // Luxe auto-rotate (slower and smoother)
             if (shoe && autoRotate) {
-                shoe.rotation.y += 0.01;
+                targetRotationY += autoRotateSpeed;
             }
-            if (!isDragging && (Math.abs(velocityX) > 0.0001 || Math.abs(velocityY) > 0.0001)) {
-                if (shoe) shoe.rotation.y += velocityX;
-                shoeGroup.rotation.x += velocityY;
+            
+            // Smooth momentum when not dragging
+            if (!isDragging && (Math.abs(velocityX) > 0.00005 || Math.abs(velocityY) > 0.00005)) {
+                targetRotationY += velocityX;
+                targetRotationX += velocityY;
+                
+                // Clamp vertical rotation during momentum
+                const maxVerticalAngle = Math.PI / 2.5;
+                targetRotationX = Math.max(-maxVerticalAngle, Math.min(maxVerticalAngle, targetRotationX));
+                
                 velocityX *= damping;
                 velocityY *= damping;
             }
+            
+            // Smooth interpolation for luxe feel
+            currentRotationY += (targetRotationY - currentRotationY) * rotationLerp;
+            currentRotationX += (targetRotationX - currentRotationX) * rotationLerp;
+            
+            // Apply smoothed rotations to shoeGroup (includes background sphere)
+            shoeGroup.rotation.y = currentRotationY;
+            shoeGroup.rotation.x = currentRotationX;
             if (shoe && shoeScaleAnimating) {
                 let current = shoe.scale.x;
                 let next = Math.min(current + shoeScaleSpeed, shoeScaleTarget);
