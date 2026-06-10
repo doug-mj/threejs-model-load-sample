@@ -347,7 +347,8 @@
                 intensity: 3.75,
                 angle: 45 + (id * 90), // Spread lights around
                 height: 7.07,
-                color: '#ffffff'
+                color: '#ffffff',
+                permanent: false // If true, light cannot be deleted
             };
             const config = { ...defaults, ...options };
 
@@ -392,10 +393,11 @@
             const panel = document.createElement('div');
             panel.className = 'controls-panel';
             panel.id = `light-panel-${id}`;
+            const deleteButton = config.permanent ? '' : `<button class="delete-light-btn" data-light-id="${id}">Delete</button>`;
             panel.innerHTML = `
                 <h3>
-                    Light ${id + 1}
-                    <button class="delete-light-btn" data-light-id="${id}">Delete</button>
+                    ${config.permanent ? 'Main Light' : `Light ${id + 1}`}
+                    ${deleteButton}
                 </h3>
                 <div class="control-group">
                     <label>Color</label>
@@ -438,16 +440,18 @@
                 updatePosition();
             });
 
-            panel.querySelector('.delete-light-btn').addEventListener('click', () => {
-                deleteLight(id);
-            });
+            if (!config.permanent) {
+                panel.querySelector('.delete-light-btn').addEventListener('click', () => {
+                    deleteLight(id);
+                });
+            }
 
             // Insert panel after the "New Light" button
             const addButton = document.getElementById('add-light-btn');
             addButton.insertAdjacentElement('afterend', panel);
 
             // Store light data
-            const lightData = { id, light, panel, config, updatePosition };
+            const lightData = { id, light, panel, config, updatePosition, permanent: config.permanent };
             lights.push(lightData);
 
             return lightData;
@@ -458,6 +462,9 @@
             if (index === -1) return;
 
             const lightData = lights[index];
+            // Cannot delete permanent lights
+            if (lightData.permanent) return;
+            
             const wasShadowCaster = lightData.light.castShadow;
             
             // Remove from shoeGroup
@@ -492,6 +499,9 @@
         document.getElementById('add-light-btn').addEventListener('click', () => {
             createLight();
         });
+
+        // Create permanent main light (cannot be deleted, needed for shadows)
+        createLight({ intensity: 5.0, angle: 45, height: 7.0, color: '#ffffff', permanent: true });
 
         // --- 3D Model Loading and Configuration ---
         const loader = new GLTFLoader(); 
