@@ -567,9 +567,14 @@
         // --- 3D Model Loading and Configuration ---
         const loader = new GLTFLoader(); 
         let shoe;
-        let shoeScaleAnimating = false;
-        let shoeScaleTarget = 8;
-        let shoeScaleSpeed = 0.1;
+        
+        // Luxe entrance animation state
+        let entranceAnimating = false;
+        let entranceProgress = 0;
+        const entranceDuration = 1.2; // seconds
+        const finalScale = 8;
+        const startScale = finalScale * 0.85;  // Start at 85%
+        const startYOffset = -0.3;  // Start slightly below
 
         // --- Model Selection ---
         const models = [
@@ -605,17 +610,24 @@
 
             loader.load(filePath, function(gltf) {
                 shoe = gltf.scene;
-                shoe.scale.set(0.01, 0.01, 0.01);
+                shoe.scale.set(startScale, startScale, startScale);
+                shoe.position.y = startYOffset;
 
                 shoe.traverse(function(child) {
                     if (child.isMesh) {
                         child.castShadow = true;
                         child.receiveShadow = false;
+                        // Enable transparency for fade-in
+                        if (child.material) {
+                            child.material.transparent = true;
+                            child.material.opacity = 0;
+                        }
                     }
                 });
 
                 shoeGroup.add(shoe);
-                shoeScaleAnimating = true;
+                entranceAnimating = true;
+                entranceProgress = 0;
             }, undefined, function(error) {
                 console.error('An error occurred loading the model:', error);
             });
@@ -721,17 +733,24 @@
 
             loader.load(url, function(gltf) {
                 shoe = gltf.scene;
-                shoe.scale.set(0.01, 0.01, 0.01);
+                shoe.scale.set(startScale, startScale, startScale);
+                shoe.position.y = startYOffset;
 
                 shoe.traverse(function(child) {
                     if (child.isMesh) {
                         child.castShadow = true;
                         child.receiveShadow = false;
+                        // Enable transparency for fade-in
+                        if (child.material) {
+                            child.material.transparent = true;
+                            child.material.opacity = 0;
+                        }
                     }
                 });
 
                 shoeGroup.add(shoe);
-                shoeScaleAnimating = true;
+                entranceAnimating = true;
+                entranceProgress = 0;
                 
                 // Clean up the object URL
                 URL.revokeObjectURL(url);
@@ -825,9 +844,10 @@
         const velocitySmoothing = 0.15;       // Smooth velocity accumulation
         let targetVelocityX = 0;
         let targetVelocityY = 0;
-        let currentRotationY = 0;
+        const initialRotationY = 110 * Math.PI / 180; // Start at 110 degrees
+        let currentRotationY = initialRotationY;
         let currentRotationX = 0;
-        let targetRotationY = 0;
+        let targetRotationY = initialRotationY;
         let targetRotationX = 0;
         const rotationLerp = 0.08;            // Smooth interpolation factor
 
@@ -1017,14 +1037,31 @@
             // Apply smoothed rotations to shoeGroup (includes background sphere)
             shoeGroup.rotation.y = currentRotationY;
             shoeGroup.rotation.x = currentRotationX;
-            if (shoe && shoeScaleAnimating) {
-                let current = shoe.scale.x;
-                let next = Math.min(current + shoeScaleSpeed, shoeScaleTarget);
-                shoe.scale.set(next, next, next);
-                if (next >= shoeScaleTarget) {
-                    shoe.scale.set(shoeScaleTarget, shoeScaleTarget, shoeScaleTarget);
-                    shoeScaleAnimating = false;
+            
+            // Luxe entrance animation
+            if (shoe && entranceAnimating) {
+                entranceProgress += 1 / 60 / entranceDuration; // Assuming ~60fps
+                if (entranceProgress >= 1) {
+                    entranceProgress = 1;
+                    entranceAnimating = false;
                 }
+                
+                // Ease-out cubic for smooth deceleration
+                const eased = 1 - Math.pow(1 - entranceProgress, 3);
+                
+                // Animate scale
+                const currentScale = startScale + (finalScale - startScale) * eased;
+                shoe.scale.set(currentScale, currentScale, currentScale);
+                
+                // Animate position (rise up)
+                shoe.position.y = startYOffset * (1 - eased);
+                
+                // Animate opacity
+                shoe.traverse(function(child) {
+                    if (child.isMesh && child.material) {
+                        child.material.opacity = eased;
+                    }
+                });
             }
             composer.render();
         }
