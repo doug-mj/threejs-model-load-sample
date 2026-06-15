@@ -1119,8 +1119,16 @@
 
         // SSAO debug toggle
         const ssaoDebug = document.getElementById('ssao-debug');
+        let orbVisibleBeforeDebug = true;
         ssaoDebug.addEventListener('change', (e) => {
             ssaoPass.output = e.target.checked ? SSAOPass.OUTPUT.SSAO : SSAOPass.OUTPUT.Default;
+            // Hide orb in debug mode to see SSAO on shoe clearly
+            if (e.target.checked) {
+                orbVisibleBeforeDebug = orb.visible;
+                orb.visible = false;
+            } else {
+                orb.visible = orbVisibleBeforeDebug;
+            }
         });
 
         // Expose for console debugging
