@@ -217,6 +217,26 @@
                     <input type="range" id="shadow-slider" min="0" max="1" step="0.05" value="0.7">
                 </div> -->
             </div>
+            <div class="controls-panel" id="orb-controls">
+                <h3>Background</h3>
+                <div class="control-group">
+                    <label>Style</label>
+                    <select id="orb-texture-selector" style="width: 100%; padding: 5px; font-family: monospace; border: 1px solid #333; border-radius: 4px;">
+                        <option value="">None</option>
+                        <option value="studio" selected>Studio</option>
+                        <option value="studio-inv">Studio Inverted</option>
+                        <option value="spotlight">Spotlight</option>
+                        <option value="spotlight-warm">Spotlight Warm</option>
+                        <option value="spotlight-cool">Spotlight Cool</option>
+                        <option value="dark">Dark</option>
+                        <option value="light">Light</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>Opacity <span class="control-value" id="orb-opacity-value">0.8</span></label>
+                    <input type="range" id="orb-opacity-slider" min="0" max="1" step="0.05" value="0.8">
+                </div>
+            </div>
             <button id="add-light-btn">+ New Light</button>
         </div>
         <canvas id="three-canvas"></canvas>
@@ -376,6 +396,103 @@
         const shoeGroup = new THREE.Group();
         scene.add(shoeGroup);
 
+        // --- Background Sphere with Procedural Gradients ---
+        const orbGeometry = new THREE.SphereGeometry(25, 64, 64);
+        const orbMaterial = new THREE.MeshBasicMaterial({
+            side: THREE.BackSide,
+            transparent: true,
+            opacity: 0.8,
+            depthWrite: false
+        });
+        const orb = new THREE.Mesh(orbGeometry, orbMaterial);
+        orb.renderOrder = -1000;  // Render behind everything
+        shoeGroup.add(orb);
+        
+        // Gray background presets with optional spotlight effects
+        const gradientPresets = {
+            // base: background gray, spotlight: center glow color (null = no spotlight)
+            studio:         { top: '#3a3a3a', mid: '#5a5a5a', bottom: '#e8e8e8', spotlight: null },
+            'studio-inv':   { top: '#e8e8e8', mid: '#5a5a5a', bottom: '#3a3a3a', spotlight: null },
+            spotlight:      { top: '#3a3a3a', mid: '#5a5a5a', bottom: '#7a7a7a', spotlight: '#ffffff' },
+            'spotlight-warm': { top: '#3a3a3a', mid: '#5a5a5a', bottom: '#7a7a7a', spotlight: '#fff5e6' },
+            'spotlight-cool': { top: '#3a3a3a', mid: '#5a5a5a', bottom: '#7a7a7a', spotlight: '#e6f0ff' },
+            dark:           { top: '#1a1a1a', mid: '#2a2a2a', bottom: '#3a3a3a', spotlight: null },
+            light:          { top: '#b0b0b0', mid: '#d0d0d0', bottom: '#f5f5f5', spotlight: null }
+        };
+        
+        // Generate gradient texture with optional spotlight
+        function generateGradientTexture(preset) {
+            const canvas = document.createElement('canvas');
+            // Wider canvas needed for spotlight effect
+            canvas.width = preset.spotlight ? 512 : 2;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+            
+            // Base vertical gradient
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            gradient.addColorStop(0, preset.top);
+            gradient.addColorStop(0.5, preset.mid);
+            gradient.addColorStop(1, preset.bottom);
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Add spotlight if specified
+            if (preset.spotlight) {
+                // Spotlight positioned behind/below the shoe (center-bottom area)
+                const spotX = canvas.width / 2;
+                const spotY = canvas.height * 0.65;  // Below center
+                const spotRadius = canvas.width * 0.6;
+                
+                const spotGradient = ctx.createRadialGradient(
+                    spotX, spotY, 0,
+                    spotX, spotY, spotRadius
+                );
+                spotGradient.addColorStop(0, preset.spotlight);
+                spotGradient.addColorStop(0.3, preset.spotlight + 'aa');  // Semi-transparent
+                spotGradient.addColorStop(1, 'transparent');
+                
+                ctx.fillStyle = spotGradient;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.colorSpace = THREE.SRGBColorSpace;
+            return texture;
+        }
+        
+        function setBackgroundStyle(style) {
+            if (!style || !gradientPresets[style]) {
+                orbMaterial.map = null;
+                orbMaterial.needsUpdate = true;
+                orb.visible = false;
+                return;
+            }
+            
+            const texture = generateGradientTexture(gradientPresets[style]);
+            orbMaterial.map = texture;
+            orbMaterial.needsUpdate = true;
+            orb.visible = true;
+        }
+        
+        // Set default background
+        setBackgroundStyle('studio');
+        
+        // Background controls
+        const orbTextureSelector = document.getElementById('orb-texture-selector');
+        const orbOpacitySlider = document.getElementById('orb-opacity-slider');
+        const orbOpacityValue = document.getElementById('orb-opacity-value');
+        
+        orbTextureSelector.addEventListener('change', (e) => {
+            setBackgroundStyle(e.target.value);
+        });
+        
+        orbOpacitySlider.addEventListener('input', (e) => {
+            const value = parseFloat(e.target.value);
+            orbMaterial.opacity = value;
+            orbOpacityValue.textContent = value.toFixed(2);
+        });
+
         const floorGeometry = new THREE.CircleGeometry(5, 64);
         const floorMaterial = new THREE.ShadowMaterial({
             transparent: true,
@@ -388,12 +505,15 @@
         floor.receiveShadow = true;
         shoeGroup.add(floor);
         
-        // Exclude floor from SSAO by hiding it during SSAO's depth/normal render
+        // Exclude floor and orb from SSAO by hiding them during SSAO's depth/normal render
         const originalSSAORender = ssaoPass.render.bind(ssaoPass);
         ssaoPass.render = function(renderer, writeBuffer, readBuffer, deltaTime, maskActive) {
+            const orbWasVisible = orb.visible;
             floor.visible = false;
+            orb.visible = false;
             originalSSAORender(renderer, writeBuffer, readBuffer, deltaTime, maskActive);
             floor.visible = true;
+            orb.visible = orbWasVisible;
         };
 
         // --- Multi-Light Management System ---
