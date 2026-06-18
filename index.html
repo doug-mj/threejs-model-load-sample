@@ -212,6 +212,10 @@
                         <input type="checkbox" id="ssao-debug"> Show SSAO only
                     </label>
                 </div>
+                <div class="control-group">
+                    <label>Film Grain <span class="control-value" id="grain-value">0.04</span></label>
+                    <input type="range" id="grain-slider" min="0" max="0.15" step="0.005" value="0.04">
+                </div>
                 <!-- <div class="control-group">
                     <label>Shadow Opacity <span class="control-value" id="shadow-value">0.7</span></label>
                     <input type="range" id="shadow-slider" min="0" max="1" step="0.05" value="0.7">
@@ -228,6 +232,7 @@
                         <option value="spotlight">Spotlight</option>
                         <option value="spotlight-warm">Spotlight Warm</option>
                         <option value="spotlight-cool">Spotlight Cool</option>
+                        <option value="floating">Floating</option>
                         <option value="dark">Dark</option>
                         <option value="light">Light</option>
                     </select>
@@ -235,6 +240,10 @@
                 <div class="control-group">
                     <label>Opacity <span class="control-value" id="orb-opacity-value">0.8</span></label>
                     <input type="range" id="orb-opacity-slider" min="0" max="1" step="0.05" value="0.8">
+                </div>
+                <div class="control-group">
+                    <label>Contrast <span class="control-value" id="orb-contrast-value">1.0</span></label>
+                    <input type="range" id="orb-contrast-slider" min="0.5" max="2.0" step="0.05" value="1.0">
                 </div>
             </div>
             <button id="add-light-btn">+ New Light</button>
@@ -382,6 +391,58 @@
         const ssaoIntensityPass = new ShaderPass(SSAOIntensityShader);
         composer.addPass(ssaoIntensityPass);
 
+        // Film grain shader - subtle noise to reduce banding and add luxe feel
+        const FilmGrainShader = {
+            uniforms: {
+                tDiffuse: { value: null },
+                time: { value: 0 },
+                intensity: { value: 0.04 },  // Subtle grain intensity
+                luminanceThreshold: { value: 0.8 }  // Reduce grain in highlights
+            },
+            vertexShader: `
+                varying vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform sampler2D tDiffuse;
+                uniform float time;
+                uniform float intensity;
+                uniform float luminanceThreshold;
+                varying vec2 vUv;
+                
+                // High quality noise function
+                float hash(vec2 p) {
+                    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+                    p3 += dot(p3, p3.yzx + 33.33);
+                    return fract((p3.x + p3.y) * p3.z);
+                }
+                
+                void main() {
+                    vec4 texel = texture2D(tDiffuse, vUv);
+                    
+                    // Calculate luminance
+                    float lum = dot(texel.rgb, vec3(0.299, 0.587, 0.114));
+                    
+                    // Generate animated noise
+                    vec2 noiseCoord = vUv * vec2(1920.0, 1080.0) + time * 100.0;
+                    float noise = hash(noiseCoord) - 0.5;
+                    
+                    // Reduce grain in bright areas for a more natural look
+                    float grainMask = 1.0 - smoothstep(luminanceThreshold - 0.2, luminanceThreshold + 0.2, lum);
+                    
+                    // Apply subtle grain
+                    vec3 result = texel.rgb + noise * intensity * grainMask;
+                    
+                    gl_FragColor = vec4(result, texel.a);
+                }
+            `
+        };
+        const filmGrainPass = new ShaderPass(FilmGrainShader);
+        composer.addPass(filmGrainPass);
+
         // Output pass for proper color space
         const outputPass = new OutputPass();
         composer.addPass(outputPass);
@@ -398,10 +459,33 @@
 
         // --- Background Sphere with Procedural Gradients ---
         const orbGeometry = new THREE.SphereGeometry(25, 64, 64);
-        const orbMaterial = new THREE.MeshBasicMaterial({
+        const orbMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+                map: { value: null },
+                opacity: { value: 0.8 },
+                contrast: { value: 1.0 }
+            },
+            vertexShader: `
+                varying vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform sampler2D map;
+                uniform float opacity;
+                uniform float contrast;
+                varying vec2 vUv;
+                void main() {
+                    vec4 texel = texture2D(map, vUv);
+                    // Apply contrast: (color - 0.5) * contrast + 0.5
+                    vec3 contrasted = clamp((texel.rgb - 0.5) * contrast + 0.5, 0.0, 1.0);
+                    gl_FragColor = vec4(contrasted, texel.a * opacity);
+                }
+            `,
             side: THREE.BackSide,
             transparent: true,
-            opacity: 0.8,
             depthWrite: false
         });
         const orb = new THREE.Mesh(orbGeometry, orbMaterial);
@@ -411,11 +495,14 @@
         // Gray background presets with optional spotlight effects
         const gradientPresets = {
             // base: background gray, spotlight: center glow color (null = no spotlight)
+            // spotX/spotY: 0-1 position (default 0.5, 0.65 for center-bottom)
+            // type: 'horizontal' for left-to-right gradient (uses left/mid/right instead of top/mid/bottom)
             studio:         { top: '#3a3a3a', mid: '#5a5a5a', bottom: '#e8e8e8', spotlight: null },
             'studio-inv':   { top: '#e8e8e8', mid: '#5a5a5a', bottom: '#3a3a3a', spotlight: null },
             spotlight:      { top: '#3a3a3a', mid: '#5a5a5a', bottom: '#7a7a7a', spotlight: '#ffffff' },
             'spotlight-warm': { top: '#3a3a3a', mid: '#5a5a5a', bottom: '#7a7a7a', spotlight: '#fff5e6' },
             'spotlight-cool': { top: '#3a3a3a', mid: '#5a5a5a', bottom: '#7a7a7a', spotlight: '#e6f0ff' },
+            floating:       { type: 'horizontal', left: '#4a5568', mid: '#6b7a8a', right: '#8a9aaa', spotlight: '#b8c8d8', spotX: 0.85, spotY: 0.35, spotRadius: 0.5 },
             dark:           { top: '#1a1a1a', mid: '#2a2a2a', bottom: '#3a3a3a', spotlight: null },
             light:          { top: '#b0b0b0', mid: '#d0d0d0', bottom: '#f5f5f5', spotlight: null }
         };
@@ -423,26 +510,36 @@
         // Generate gradient texture with optional spotlight
         function generateGradientTexture(preset) {
             const canvas = document.createElement('canvas');
-            // Wider canvas needed for spotlight effect
-            canvas.width = preset.spotlight ? 512 : 2;
+            // Wider canvas needed for spotlight or horizontal gradient
+            canvas.width = (preset.spotlight || preset.type === 'horizontal') ? 512 : 2;
             canvas.height = 512;
             const ctx = canvas.getContext('2d');
             
-            // Base vertical gradient
-            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-            gradient.addColorStop(0, preset.top);
-            gradient.addColorStop(0.5, preset.mid);
-            gradient.addColorStop(1, preset.bottom);
+            // Create gradient based on type
+            let gradient;
+            if (preset.type === 'horizontal') {
+                // Horizontal gradient (left to right)
+                gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
+                gradient.addColorStop(0, preset.left);
+                gradient.addColorStop(0.5, preset.mid);
+                gradient.addColorStop(1, preset.right);
+            } else {
+                // Default vertical gradient (top to bottom)
+                gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+                gradient.addColorStop(0, preset.top);
+                gradient.addColorStop(0.5, preset.mid);
+                gradient.addColorStop(1, preset.bottom);
+            }
             
             ctx.fillStyle = gradient;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             
             // Add spotlight if specified
             if (preset.spotlight) {
-                // Spotlight positioned behind/below the shoe (center-bottom area)
-                const spotX = canvas.width / 2;
-                const spotY = canvas.height * 0.65;  // Below center
-                const spotRadius = canvas.width * 0.6;
+                // Spotlight position (defaults to center-bottom area)
+                const spotX = canvas.width * (preset.spotX ?? 0.5);
+                const spotY = canvas.height * (preset.spotY ?? 0.65);
+                const spotRadius = canvas.width * (preset.spotRadius ?? 0.6);
                 
                 const spotGradient = ctx.createRadialGradient(
                     spotX, spotY, 0,
@@ -463,15 +560,13 @@
         
         function setBackgroundStyle(style) {
             if (!style || !gradientPresets[style]) {
-                orbMaterial.map = null;
-                orbMaterial.needsUpdate = true;
+                orbMaterial.uniforms.map.value = null;
                 orb.visible = false;
                 return;
             }
             
             const texture = generateGradientTexture(gradientPresets[style]);
-            orbMaterial.map = texture;
-            orbMaterial.needsUpdate = true;
+            orbMaterial.uniforms.map.value = texture;
             orb.visible = true;
         }
         
@@ -489,8 +584,18 @@
         
         orbOpacitySlider.addEventListener('input', (e) => {
             const value = parseFloat(e.target.value);
-            orbMaterial.opacity = value;
+            orbMaterial.uniforms.opacity.value = value;
             orbOpacityValue.textContent = value.toFixed(2);
+        });
+        
+        // Contrast slider - only affects background
+        const orbContrastSlider = document.getElementById('orb-contrast-slider');
+        const orbContrastValue = document.getElementById('orb-contrast-value');
+        
+        orbContrastSlider.addEventListener('input', (e) => {
+            const value = parseFloat(e.target.value);
+            orbMaterial.uniforms.contrast.value = value;
+            orbContrastValue.textContent = value.toFixed(2);
         });
 
         const floorGeometry = new THREE.CircleGeometry(5, 64);
@@ -1135,6 +1240,18 @@
         window.ssaoPass = ssaoPass;
         window.SSAOPass = SSAOPass;
         window.ssaoIntensityPass = ssaoIntensityPass;
+        window.filmGrainPass = filmGrainPass;
+
+        // --- Film Grain Slider ---
+        const grainSlider = document.getElementById('grain-slider');
+        const grainValue = document.getElementById('grain-value');
+
+        grainSlider.addEventListener('input', (e) => {
+            const value = parseFloat(e.target.value);
+            filmGrainPass.uniforms.intensity.value = value;
+            filmGrainPass.enabled = value > 0;
+            grainValue.textContent = value.toFixed(3);
+        });
 
         function animate() {
             requestAnimationFrame(animate);
@@ -1165,6 +1282,9 @@
             // Apply smoothed rotations to shoeGroup (includes background sphere)
             shoeGroup.rotation.y = currentRotationY;
             shoeGroup.rotation.x = currentRotationX;
+            
+            // Update film grain time for animation
+            filmGrainPass.uniforms.time.value = performance.now() * 0.001;
             
             // Luxe entrance animation
             if (shoe && entranceAnimating) {
