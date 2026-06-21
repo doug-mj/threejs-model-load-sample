@@ -426,8 +426,8 @@
                     // Calculate luminance
                     float lum = dot(texel.rgb, vec3(0.299, 0.587, 0.114));
                     
-                    // Generate animated noise
-                    vec2 noiseCoord = vUv * vec2(1920.0, 1080.0) + time * 100.0;
+                    // Generate static noise (fixed per pixel) to mask banding without shimmer
+                    vec2 noiseCoord = vUv * vec2(1920.0, 1080.0);
                     float noise = hash(noiseCoord) - 0.5;
                     
                     // Reduce grain in bright areas for a more natural look
@@ -441,6 +441,7 @@
             `
         };
         const filmGrainPass = new ShaderPass(FilmGrainShader);
+        filmGrainPass.enabled = false;  // Grain is now applied in the background orb shader only
         composer.addPass(filmGrainPass);
 
         // Output pass for proper color space
@@ -463,7 +464,8 @@
             uniforms: {
                 map: { value: null },
                 opacity: { value: 0.8 },
-                contrast: { value: 1.0 }
+                contrast: { value: 1.0 },
+                grainIntensity: { value: 0.04 }  // Background-only film grain to mask banding
             },
             vertexShader: `
                 varying vec2 vUv;
@@ -476,11 +478,23 @@
                 uniform sampler2D map;
                 uniform float opacity;
                 uniform float contrast;
+                uniform float grainIntensity;
                 varying vec2 vUv;
+
+                // Static hash noise to dither gradient banding
+                float hash(vec2 p) {
+                    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+                    p3 += dot(p3, p3.yzx + 33.33);
+                    return fract((p3.x + p3.y) * p3.z);
+                }
+
                 void main() {
                     vec4 texel = texture2D(map, vUv);
                     // Apply contrast: (color - 0.5) * contrast + 0.5
                     vec3 contrasted = clamp((texel.rgb - 0.5) * contrast + 0.5, 0.0, 1.0);
+                    // Static, screen-space film grain (background only) to mask banding
+                    float grain = hash(gl_FragCoord.xy) - 0.5;
+                    contrasted += grain * grainIntensity;
                     gl_FragColor = vec4(contrasted, texel.a * opacity);
                 }
             `,
@@ -1248,8 +1262,7 @@
 
         grainSlider.addEventListener('input', (e) => {
             const value = parseFloat(e.target.value);
-            filmGrainPass.uniforms.intensity.value = value;
-            filmGrainPass.enabled = value > 0;
+            orbMaterial.uniforms.grainIntensity.value = value;
             grainValue.textContent = value.toFixed(3);
         });
 
@@ -1282,9 +1295,6 @@
             // Apply smoothed rotations to shoeGroup (includes background sphere)
             shoeGroup.rotation.y = currentRotationY;
             shoeGroup.rotation.x = currentRotationX;
-            
-            // Update film grain time for animation
-            filmGrainPass.uniforms.time.value = performance.now() * 0.001;
             
             // Luxe entrance animation
             if (shoe && entranceAnimating) {
